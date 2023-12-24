@@ -1,27 +1,9 @@
 
 import argparse
-import pandas as pd
+import pickle
 
+from airway_graph import AirwayGraph
 
-def generate_airways_from_files(awy_file, fix_file, n_fix=5):
-    """
-    Generate an augmented airways database from official FAA data and GPS navaids.
-
-    Arguments:
-    - awy_file (str): File path for the FAA's NASR database AWY_SEG.csv
-    - fix_file (str): File path for the FAA's NASR database FIX_BASE.csv
-    - n_fix (int): Number of fixes at most to connect when generating augmented airways.
-    """
-
-    # Load the NASR airways
-    nasr_airways_csv = pd.read_csv(awy_file)
-
-    # Load the NASR fixes
-    nasr_fix_base_csv = pd.read_csv(fix_file)
-    
-    # Return augmented airways
-    # TODO: load in FIX_BASE.csv and create airways based on the N-closest fixes for a given fix.
-    return nasr_airways_csv
 
 if __name__ == "__main__":
     # Make this script configurable
@@ -34,4 +16,10 @@ if __name__ == "__main__":
     awy_file = args.awy_file
     fix_file = args.fix_file
 
-    awy_db = generate_airways_from_files(awy_file, fix_file)
+    awy_graph = AirwayGraph()
+    awy_graph.load_defined_airways(awy_file)
+    awy_graph.build_custom_airways(fix_file)
+
+    # Export the graph to a pickle file
+    with open("data/airway_graph.pkl", "wb") as f:
+        pickle.dump(awy_graph, f)
