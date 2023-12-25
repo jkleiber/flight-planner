@@ -63,4 +63,3 @@ poetry run python main.py SWAGG LIMBO
 The resulting plan is shown in SkyVector:
 ![SWAGG to LIMBO](img/swagg_to_limbo.png)
 
-In this case, the search algorithm does not find the shortest path. More work is needed to ensure the algorithm is correct and the database is fully defined.

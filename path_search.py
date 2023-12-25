@@ -44,15 +44,15 @@ def find_best_path(graph: AirwayGraph, start_ident: str, end_ident: str, verbose
     p_wpt.priority = 0.0
     frontier.put(p_wpt)
 
-    # Keep track of the waypoint predecessors in a dictionary.
-    """
-    {
-        "wpt": Predecessor AStarWaypoint
+    # Keep track of the visited waypoint g(x) scores.
+    g_scores = {
+        start_ident: 0.0
     }
-    """
+
+    # Keep track of the waypoint predecessors in a dictionary.
     path_dict = {}
 
-    # Geodesic is used for heuristic g(x) score.
+    # Geodesic is used for heuristic h(x) score.
     geod = Geodesic.WGS84
 
     # Flag for tracking if the goal was found.
@@ -86,15 +86,15 @@ def find_best_path(graph: AirwayGraph, start_ident: str, end_ident: str, verbose
             continue
 
         # Add all airway end points to the frontier.
-        for next_pt_id in airways.keys():
+        for ident in airways.keys():
             # Create an A* point.
             astar_pt = AStarWaypoint()
 
             # Get the waypoint from the graph.
-            astar_pt.wpt = graph.get_waypoint(next_pt_id)
+            astar_pt.wpt = graph.get_waypoint(ident)
 
             # Get distance traveled to this point
-            airway_len = airways[next_pt_id].distance
+            airway_len = airways[ident].distance
 
             # Compute g(x) score (distance from start to current point)
             astar_pt.g_val = expand_pt.g_val + airway_len
@@ -110,21 +110,25 @@ def find_best_path(graph: AirwayGraph, start_ident: str, end_ident: str, verbose
             # Show the point being added to the queue if requested
             if verbose:
                 print(
-                    f"{wpt_id}->{next_pt_id} - f(x) = {astar_pt.priority}, g(x) = {astar_pt.g_val}, h(x) = {astar_pt.h_val}")
+                    f"{wpt_id}->{ident} - f(x) = {astar_pt.priority}, g(x) = {astar_pt.g_val}, h(x) = {astar_pt.h_val}")
 
-            # If the current point does not have a previous point tracked in the path dictionary,
-            # add the expansion point as the previous point.
-            if next_pt_id not in path_dict.keys():
-                path_dict[next_pt_id] = expand_pt
+            # If the current point has not been visited, add its g(x) score to the g_score dictionary.
+            # This only occurs when a point does not have a previous point tracked in the path dictionary,
+            # so add the expansion point as the previous point.
+            if ident not in g_scores.keys():
+                g_scores[ident] = astar_pt.g_val
+                path_dict[ident] = expand_pt
 
                 # Add the point to the frontier since it is new.
                 frontier.put(astar_pt)
             else:
                 # Otherwise, check if the current previous point has a higher g(x) score than this one.
-                # If it does, then we update the dictionary to track the better route to this point
-                # (via the point being expanded).
-                if astar_pt.g_val < path_dict[next_pt_id].g_val:
-                    path_dict[next_pt_id] = expand_pt
+                # If it does, then we update the path dictionary to track the better route to this point
+                # (via the point being expanded). Also update the g(x) dictionary to reflect the
+                # improved path.
+                if astar_pt.g_val < g_scores[ident]:
+                    g_scores[ident] = astar_pt.g_val
+                    path_dict[ident] = expand_pt
 
                     # Add the point to the frontier since it has been improved upon.
                     frontier.put(astar_pt)

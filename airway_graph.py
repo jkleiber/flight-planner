@@ -42,8 +42,8 @@ class AirwayGraph:
 
     def add_airway(self, start_wpt_id: str, end_wpt_id: Waypoint, airway_type: AirwayType, name=""):
         """
-        Adds an airway (edge) to the graph. Airways are not necessarily bidirectional, so only one
-        airway is added between points.
+        Adds an airway (edge) to the graph. Airways are bidirectional, so two airways are added between
+        the provided points.
 
         Arguments:
         - `start_wpt_id` (str): starting waypoint identifier for the airway
@@ -65,34 +65,55 @@ class AirwayGraph:
         end_wpt = self.waypoints[end_wpt_id]
 
         # Forward direction
-        awy = Airway()
-        awy.start_pt = start_wpt
-        awy.end_pt = end_wpt
-        awy.airway_type = airway_type
-        awy.name = name
+        fwd_awy = Airway()
+        fwd_awy.start_pt = start_wpt
+        fwd_awy.end_pt = end_wpt
+        fwd_awy.airway_type = airway_type
+        fwd_awy.name = name
+
+        # Reverse direction
+        rev_awy = Airway()
+        rev_awy.start_pt = start_wpt
+        rev_awy.end_pt = end_wpt
+        rev_awy.airway_type = airway_type
+        rev_awy.name = name
 
         # Uniqueness flag
-        awy_is_unique = True
+        fwd_awy_is_unique = True
+        rev_awy_is_unique = True
 
         # Ensure the airways aren't already in the graph.
         if start_wpt.name in self.airways.keys():
             if end_wpt.name in self.airways[start_wpt.name].keys():
                 if self.verbose:
                     print(f"Airway {start_wpt.name}->{end_wpt.name} already exists, skipping...")
-                awy_is_unique = False
+                fwd_awy_is_unique = False
         else:
             self.airways[start_wpt.name] = {}
 
+        # Reverse direction
+        if end_wpt.name in self.airways.keys():
+            if start_wpt.name in self.airways[end_wpt.name].keys():
+                if self.verbose:
+                    print(f"Airway {end_wpt.name}->{start_wpt.name} already exists, skipping...")
+                rev_awy_is_unique = False
+        else:
+            self.airways[end_wpt.name] = {}
+
         # Compute distance between waypoints (labeled s12 by geographiclib).
         g = self.geod.Inverse(start_wpt.lat, start_wpt.lon, end_wpt.lat, end_wpt.lon)
-        awy.distance = g["s12"]
+        fwd_awy.distance = g["s12"]
+        rev_awy.distance = g["s12"]
 
         # TODO: check validity with respect to airspace, NOTAMs, etc. For now, assume the airway is valid.
-        awy.is_valid = True
+        fwd_awy.is_valid = True
+        rev_awy.is_valid = True
 
-        # Add the airway to the airway map if it is unique.
-        if awy_is_unique:
-            self.airways[start_wpt.name][end_wpt.name] = awy
+        # Add the airways to the airway map if they are unique.
+        if fwd_awy_is_unique:
+            self.airways[start_wpt.name][end_wpt.name] = fwd_awy
+        if rev_awy_is_unique:
+            self.airways[end_wpt.name][start_wpt.name] = rev_awy
 
     def add_waypoint(self, id: str, lat: float, lon: float, wpt_type: WaypointType, rwy: str = ""):
         """
