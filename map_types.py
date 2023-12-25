@@ -40,7 +40,7 @@ class Airway:
 
 @dataclass(order=True)
 class AStarWaypoint:
-    priority: field(default=np.inf, compare=True)
-    f_val: field(default=0.0, compare=False)
-    g_val: field(default=0.0, compare=False)
-    wpt: field(default=None, compare=False)
+    priority: float = field(default=np.inf, compare=True)
+    g_val: float = field(default=np.inf, compare=False)
+    h_val: float = field(default=np.inf, compare=False)
+    wpt: Waypoint = field(default=None, compare=False)

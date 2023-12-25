@@ -303,3 +303,12 @@ class AirwayGraph:
             return None
 
         return self.waypoints[ident]
+
+    def get_airways_at_waypoint(self, ident: str) -> dict:
+        if ident not in self.airways.keys():
+            if self.verbose:
+                print(
+                    f"Error: {ident} is not in the airways dictionary. No airways available")
+            return None
+
+        return self.airways[ident]
