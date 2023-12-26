@@ -40,7 +40,7 @@ class AirwayGraph:
         """
         self.airways = {}
 
-    def add_airway(self, start_wpt_id: str, end_wpt_id: Waypoint, airway_type: AirwayType, name=""):
+    def add_airway(self, start_wpt_id: str, end_wpt_id: Waypoint, airway_type: AirwayType, name="", bidirectional=True):
         """
         Adds an airway (edge) to the graph. Airways are bidirectional, so two airways are added between
         the provided points.
@@ -50,6 +50,9 @@ class AirwayGraph:
         - `end_wpt_id` (str): end waypoint identifier for the airway
         - `airway_type` (AirwayType): type of airway
         - `name` (str, optional): name of a named airway, such as a standard departure or arrival
+        - `bidirectional` (bool, optional): flag indicating if this airway is bidirectional. 
+                                            Used to ensure departures and arrivals maintain 
+                                            their directionality.
         """
         if start_wpt_id not in self.waypoints.keys():
             if self.verbose:
@@ -91,14 +94,15 @@ class AirwayGraph:
         else:
             self.airways[start_wpt.name] = {}
 
-        # Reverse direction
-        if end_wpt.name in self.airways.keys():
-            if start_wpt.name in self.airways[end_wpt.name].keys():
-                if self.verbose:
-                    print(f"Airway {end_wpt.name}->{start_wpt.name} already exists, skipping...")
-                rev_awy_is_unique = False
-        else:
-            self.airways[end_wpt.name] = {}
+        # Check reverse direction if the airway is bidirectional.
+        if bidirectional:
+            if end_wpt.name in self.airways.keys():
+                if start_wpt.name in self.airways[end_wpt.name].keys():
+                    if self.verbose:
+                        print(f"Airway {end_wpt.name}->{start_wpt.name} already exists, skipping...")
+                    rev_awy_is_unique = False
+            else:
+                self.airways[end_wpt.name] = {}
 
         # Compute distance between waypoints (labeled s12 by geographiclib).
         g = self.geod.Inverse(start_wpt.lat, start_wpt.lon, end_wpt.lat, end_wpt.lon)
@@ -109,10 +113,10 @@ class AirwayGraph:
         fwd_awy.is_valid = True
         rev_awy.is_valid = True
 
-        # Add the airways to the airway map if they are unique.
+        # Add the airways to the airway map if they are unique. Only add the reverse airway if the airway is bidirectional.
         if fwd_awy_is_unique:
             self.airways[start_wpt.name][end_wpt.name] = fwd_awy
-        if rev_awy_is_unique:
+        if rev_awy_is_unique and bidirectional:
             self.airways[end_wpt.name][start_wpt.name] = rev_awy
 
     def add_waypoint(self, id: str, lat: float, lon: float, wpt_type: WaypointType, rwy: str = ""):
@@ -141,7 +145,8 @@ class AirwayGraph:
         # Add to the waypoint map.
         self.waypoints[wpt.name] = wpt
 
-    def load_nasr_data(self, fix_file: str, apt_file: str, navaid_file: str, awy_file: str, star_rte_file: str, sid_rte_file: str):
+    def load_nasr_data(self, fix_file: str, apt_file: str, navaid_file: str, awy_file: str,
+                       star_rte_file: str, star_apt_file: str, sid_rte_file: str, sid_apt_file: str):
         """
         Loads all NASR data into the airway graph.
 
@@ -151,7 +156,9 @@ class AirwayGraph:
         - `navaid_file`: NAV_BASE.csv from NASR subscription
         - `awy_file`: AWY_SEG.csv from NASR subscription
         - `star_rte_file`: STAR_RTE.csv from NASR subscription
+        - `star_apt_file`: STAR_APT.csv from NASR subscription
         - `sid_rte_file`: DP_RTE.csv from NASR subscription
+        - `sid_apt_file`: DP_APT.csv from NASR subscription
         """
         # 1. Load the NASR fixes into the graph.
         self.load_nasr_fixes(fix_file)
@@ -164,10 +171,10 @@ class AirwayGraph:
         self.load_nasr_navaids(navaid_file)
 
         # 4. Load standard arrivals
-        self.load_nasr_stars(star_rte_file)
+        self.load_nasr_stars(star_rte_file, star_apt_file)
 
         # 5. Load standard departures
-        self.load_nasr_sids(sid_rte_file)
+        self.load_nasr_sids(sid_rte_file, sid_apt_file)
 
         # 6. Load all generic airways. This is done after arrivals and departures to ensure the named
         # routes get added correctly.
@@ -263,12 +270,12 @@ class AirwayGraph:
             if np.nan not in (row["SEG_VALUE"], row["NEXT_SEG"]):
                 self.add_airway(row["SEG_VALUE"], row["NEXT_SEG"], AirwayType.ENROUTE)
 
-    def load_nasr_stars(self, star_rte_file: str):
+    def load_nasr_stars(self, star_rte_file: str, star_apt_file: str):
         """
         Load the standard terminal arrivals (STARs) in as named airways.
 
         Arguments:
-        - star_rte_file (str): File path for the FAA's NASR database STAR_RTE.csv
+        - `star_rte_file` (str): File path for the FAA's NASR database STAR_RTE.csv
         """
         # Load the NASR STAR routes CSV.
         nasr_star_rte_csv = pd.read_csv(star_rte_file)
@@ -277,23 +284,53 @@ class AirwayGraph:
         for _, row in nasr_star_rte_csv.iterrows():
             if np.nan not in (row["POINT"], row["NEXT_POINT"]):
                 self.add_airway(row["POINT"], row["NEXT_POINT"],
-                                AirwayType.ARRIVAL, row['ROUTE_NAME'])
+                                AirwayType.ARRIVAL, row['ROUTE_NAME'], bidirectional=False)
 
-    def load_nasr_sids(self, sid_rte_file: str):
+        # Go through each airport and link it to the arrival via an airway.
+        nasr_star_apt_csv = pd.read_csv(star_apt_file)
+        for _, row in nasr_star_apt_csv.iterrows():
+            # Use the body name field to identify the last waypoint in the procedure.
+            star_route = row["BODY_NAME"]
+
+            # Split the string to find the last waypoint if there is a hyphen.
+            star_wpt = star_route
+            if "-" in star_route:
+                star_wpt = star_wpt.split("-")[1]
+
+            # Add the airway.
+            self.add_airway(star_wpt, row["ARPT_ID"], AirwayType.ARRIVAL, bidirectional=False)
+
+    def load_nasr_sids(self, sid_rte_file: str, sid_apt_file: str):
         """
         Load the standard instrument departure procedures (SIDs) in as named airways.
 
         Arguments:
         - sid_rte_file (str): File path for the FAA's NASR database DP_RTE.csv
+        - sid_apt_file (str): File path for the FAA's NASR database DP_APT.csv
         """
         # Load the NASR standard departure routes CSV.
         nasr_sid_rte_csv = pd.read_csv(sid_rte_file)
 
-        # Go through each route and add it in as an ARRIVAL airway
+        # Go through each route and add it in as an DEPARTURE airway
         for _, row in nasr_sid_rte_csv.iterrows():
             if np.nan not in (row["POINT"], row["NEXT_POINT"]):
+
                 self.add_airway(row["POINT"], row["NEXT_POINT"],
-                                AirwayType.DEPARTURE, row['DP_NAME'])
+                                AirwayType.DEPARTURE, row['DP_NAME'], bidirectional=False)
+
+        # Go through each airport and link it to the departure via an airway.
+        nasr_sid_apt_csv = pd.read_csv(sid_apt_file)
+        for _, row in nasr_sid_apt_csv.iterrows():
+            # Use the body name field to identify the first waypoint in the procedure.
+            dp_route = row["BODY_NAME"]
+
+            # Split the string to find the first waypoint if there is a hyphen.
+            dp_wpt = dp_route
+            if "-" in dp_route:
+                dp_wpt = dp_wpt.split("-")[0]
+
+            # Add the airway.
+            self.add_airway(row["ARPT_ID"], dp_wpt, AirwayType.DEPARTURE, bidirectional=False)
 
     def build_custom_airways(self, n_fix=5):
         """
